@@ -55,7 +55,7 @@
 flowchart LR
     ESP["ESP32-S3 主控<br/>ESP-IDF / TWAI<br/>运动学解算 · 软限位<br/>模式状态机 · 100Hz 增稳环"]
 
-    GP["BLE 手柄<br/>标准 HID"] -->|BLE| ESP
+    GP["CodexPad-S10 手柄<br/>BLE 自定义协议"] -->|BLE| ESP
     IMU["汇电籽-601 串口陀螺仪<br/>ICM42688 + TI M0 · 装托盘上"] -->|UART 100 Hz| ESP
     RK["泰山派 RK3576<br/>视觉识别 · 二期"] -->|UART2| ESP
 
@@ -90,9 +90,9 @@ CAN 负载在 100 Hz 下**已经不是约束**：速度模式 `F6` 只占 **5.2%
 
 | # | 问题 | 选择 | 核心理由 |
 |---|---|---|---|
-| 1 | 主控选型 | **ESP32-S3**（非 STM32H743） | `twai` + `esp_hid_host` 都是官方组件，BLE 手柄直连不用外挂模块 |
+| 1 | 主控选型 | **ESP32-S3**（非 STM32H743） | `twai` + `nimble` 都是官方组件，BLE 手柄直连不用外挂模块 |
 | 2 | 电机接口 | **CAN**（非 UART TTL） | 一条总线挂多机 + 原生多机同步广播，抗干扰强 |
-| 3 | 固件框架 | **ESP-IDF**（非 Arduino/MicroPython） | 需要 100 Hz 确定性控制环和原生 BLE HID 主机 |
+| 3 | 固件框架 | **ESP-IDF**（非 Arduino/MicroPython） | 需要 100 Hz 确定性控制环（任务绑核 + 优先级 + Kconfig 一等公民） |
 | 4 | 跟踪律位置 | **ESP32 侧**（非泰山派） | 运动学/限位/安全必须在实时侧，视觉只上报像素偏差 |
 | 5 | 视觉链路 | **UART**（非 WiFi/USB） | 低延迟确定性强，UDP 抖动会吃掉跟踪带宽 |
 | 6 | 视觉算法 | **先手工特征，后训练模型** | 让链路与算法解耦验证，不把两个风险叠一起 |
@@ -243,7 +243,7 @@ python tools/plot.py sample.csv
 | **前置** | 上位机联调工具链（6 个 Python 工具） | ✅ 完成 |
 | **前置** | 机械结构 3D 建模 | ✅ 完成 |
 | **一期** | ESP32-S3 主控 + CAN 驱动双电机 | 🚧 进行中 |
-| **一期** | BLE HID 手柄接入（双摇杆速度控制） | ⬜ 未开始 |
+| **一期** | CodexPad-S10 手柄接入（BLE 自定义协议，双摇杆速度控制） | ⬜ 未开始 |
 | **一期** | 汇电籽-601 惯性增稳环（100 Hz） | ⬜ 未开始 |
 | **二期** | 泰山派视觉识别 → UART 像素偏差上报 | ⬜ 未开始 |
 | **二期** | ESP32 视觉跟踪闭环 | ⬜ 未开始 |
@@ -261,6 +261,7 @@ python tools/plot.py sample.csv
 | [docs/00-总体方案-PRD.md](docs/00-总体方案-PRD.md) | 需求规格、系统架构、通信协议、**9 项关键决策取舍**、里程碑 |
 | [docs/01-CAN调试入门指南.md](docs/01-CAN调试入门指南.md) | 从零接通 CAN 的完整流程与根因排查优先级 |
 | [docs/02-601串口陀螺仪协议.md](docs/02-601串口陀螺仪协议.md) | IMU 串口协议：帧结构/校验/指令表/上报解析，含可直接跑的自检脚本 |
+| [docs/03-BLE手柄接入执行文档.md](docs/03-BLE手柄接入执行文档.md) | CodexPad-S10 手柄自定义 BLE 协议（非 HID）+ NimBLE 主机实现 + M2a–M2d 执行步骤 |
 | [tools/README.md](tools/README.md) | 工具集使用说明，含 `drain()` 15 ms 问题的完整过程 |
 | [reverse-engineering/notes/](reverse-engineering/notes/) | 加壳程序脱壳、Ghidra 反编译、协议还原证据链 |
 | [hardware/README.md](hardware/README.md) | 硬件清单、接线要点、供电方案 |

@@ -10,7 +10,7 @@
 | 需求 | 理由 |
 |---|---|
 | 100 Hz 硬实时增稳环 | FreeRTOS 双核 + 任务绑核，能保证 10 ms 周期 |
-| BLE HID 主机 | `esp_hid_host` 是官方组件，不用外挂模块 |
+| BLE 主机 | `nimble`（ESP-IDF 官方 BLE 协议栈），手柄直连不用外挂模块 |
 | CAN | 片内 TWAI 控制器（**只差一颗收发器**） |
 | IMU | UART1 = GPIO17/18，汇电籽-601 模块主动上报 100 Hz |
 | 视觉链路 | 对外 UART2（**引脚待上板确认**，建议 GPIO10/11） |
@@ -25,7 +25,7 @@
 ```
 esp32_turret/
 ├── CMakeLists.txt
-├── sdkconfig.defaults            # TWAI / BLE HID host / UART / PSRAM 关键配置
+├── sdkconfig.defaults            # TWAI / NimBLE(BLE central) / UART / PSRAM 关键配置
 ├── main/
 │   ├── app_main.c                # 初始化 + 创建任务
 │   └── Kconfig.projbuild         # 机械与传感器参数（镜像、限位、增益、滤波）
@@ -37,7 +37,8 @@ esp32_turret/
     ├── stabilizer/               # 速率稳定环 + 使能/旁路 + 自激保护
     ├── gimbal_kin/               # 差速运动学正反解 + 镜像补偿 + 限幅
     ├── motion/                   # 模式状态机 + 指向环 + 轨迹
-    ├── gamepad_ble/              # esp_hid_host 封装 → 归一化摇杆 / 按键
+    ├── gamepad_ble/              # NimBLE GATT 客户端：连接 / 订阅 / 重连
+    │   └── codexpad_codec.c/.h   # ★ 自定义帧编解码：0xAA…0x55 + 转义 + CRC8(SAE-J1850)
     ├── link_uart/                # 与泰山派的 UART 协议（二期）
     └── safety/                   # 心跳 / 软限位 / 急停 / 故障 / IMU 异常
 ```
@@ -66,7 +67,7 @@ esp32_turret/
 | `motor_tx_task` | 高 | **10 ms** | CAN 速度模式打包下发（两帧背靠背，无需同步广播，与增稳环同周期） |
 | `motion_task` | 中 | 10 ms | 模式状态机、**指向环**、差速反解、限幅 |
 | `can_rx_task` | 中 | 事件驱动 | CAN 接收 → 队列（应答 / 到位 / 故障标志） |
-| `gamepad_task` | 中 | 事件驱动（≈10 ms） | BLE HID 报告 → 摇杆 / 按键状态 |
+| `gamepad_task` | 中 | 事件驱动（每收到一帧 notify） | 手柄 notify 帧 → 摇杆 / 按键状态 |
 | `uart_comm_task` | 低 | 20 ms | 与泰山派收发、状态上报（二期） |
 
 **两条关键实践**：
@@ -121,7 +122,7 @@ IMU 也异常才退回 IDLE。**绝不在失去控制源时继续运动。**
 
 | 风险 | 说明 | 缓解 |
 |---|---|---|
-| **BLE HID 手柄兼容性** | `esp_hid_host` 连手柄是整个计划里最不确定的一环。不同手柄的 HID report 描述符差异大，摇杆轴/按键位都要按具体型号解析 | 先花半天用 ESP-IDF 示例单独验证；连不上就改用 ESP32-S3 原生 USB 接 USB 手柄（**那条路反而最稳**） |
+| **手柄 BLE 链路打通** | 手柄是 **CodexPad-S10，不是 BLE-HID**，走厂商自定义 GATT 协议（`0xFFA0`/`0xFFA1`）。协议已从厂商开源库完整逆向，风险降为**移植工作量** | 基于 ESP-IDF `blecent` 示例裁剪 NimBLE 客户端；**M2a 只扫描即可先证伪**。协议、帧格式、CRC 表、代码骨架见 [`docs/03-BLE手柄接入执行文档.md`](../docs/03-BLE手柄接入执行文档.md)；卡住时有 arduino-esp32 官方 `CodexPad` 库作逃生路线 |
 | **IMU 布线跨转动关节** | IMU 装在托盘上，UART 4 线（5V/GND/TX/RX）要跨关节 | 一期用"限位自转 ±90°"规避；必须有掉线检测（帧超时 + 校验和错误计数），异常自动旁路稳定环 |
 | **IMU 采样率上限 100 Hz** | 汇电籽-601 固定 100 Hz 上报、协议不支持改速率，增稳闭环带宽目标只能定 **≥ 10 Hz**（原计划 ≥ 20 Hz） | 惯性增稳的任务是"提高阻尼"不是"提高增益"，10 Hz 足够抑制手抖与行走扰动；不足时优先靠机械刚度与低通滤波，而不是硬提增益 |
 | **视觉模型工作量** | 采集/标注/训练/RKNN 转换是最大的一块 | 拆成"先用传统图像处理（色块）跑通整条链路 → 再换训练好的模型"，让链路与算法解耦验证 |
