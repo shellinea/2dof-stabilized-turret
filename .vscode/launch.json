@@ -1,0 +1,217 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "name": "01 扫描在线电机",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["scan"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "02 读两台状态",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "status"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "03 使能两台",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "enable"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "04 失能两台 (松手，可手动摆位)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "enable", "--off"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "05 立即停止两台",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "stop"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "06 解除堵转保护两台",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "release-stall"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "07 读回零参数 (功能码 22)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "read-homing"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "08 读回零状态标志 (3B)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "home-status"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "09 触发回零 单圈就近 (9A 00)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "home", "0"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "09b 退出回零 (9C 48)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "home-exit"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "10 云台 单程确认方向",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--tilt", "45", "--rpm", "15", "--once"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "11 云台 俯仰来回+自转",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--tilt", "30", "--cycles", "3", "--spin", "170", "--rpm", "45", "--acc", "80"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "12 云台 无限循环 (会一直动，需手动停)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--repeat", "0", "--tilt", "30", "--cycles", "3", "--spin", "170", "--rpm", "45", "--acc", "80"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "13 云台 只看当前姿态 (--show)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--show"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "14 云台 把当前姿态标为零点 (--zero)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--zero"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "15 软限位演示 俯仰200 (应被拦截+退出码2，不动是正常的)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/gimbal.py",
+            "args": ["--tilt", "200", "--once"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "20 采样 10 秒 -> sample.csv",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1,2", "sample", "--secs", "10", "--hz", "20", "--log", "sample.csv"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "21 画波形 (开窗)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/plot.py",
+            "args": ["sample.csv"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "22 画波形 存成 png",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/plot.py",
+            "args": ["sample.csv", "--save", "sample.png"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "23 实时波形 看两台 (10秒窗)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--addr", "1,2", "--window", "10"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "24 实时波形 演示模式 (假数据, 不用硬件)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--demo"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "25 实时波形 + 云台动作 (边动边看)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--motion", "cycle", "--tilt", "30", "--cycles", "3",
+                     "--spin", "170", "--rpm", "45", "--acc", "80",
+                     "--save", "run.csv"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "26 实时波形 + 单程确认方向 (45°)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--motion", "once", "--tilt", "45", "--rpm", "15"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "27 实时波形 + 回零 (看位置曲线扑向零点)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--motion", "home", "--home-mode", "0"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "28 往返延迟对比 (43 7A vs 5.5 单量, 判断要不要上 11 18)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/zdt_can.py",
+            "args": ["--addr", "1", "latency", "--op", "all", "--n", "50"],
+            "console": "integratedTerminal"
+        },
+        {
+            "name": "29 实时波形 + 无限循环 (会一直动, 窗口里按 X 急停 / Q 退出)",
+            "type": "debugpy",
+            "request": "launch",
+            "program": "${workspaceFolder}/tools/scope.py",
+            "args": ["--motion", "cycle", "--repeat", "0",
+                     "--tilt", "30", "--cycles", "3", "--spin", "170",
+                     "--rpm", "45", "--acc", "80", "--hz", "100"],
+            "console": "integratedTerminal"
+        }
+    ]
+}
