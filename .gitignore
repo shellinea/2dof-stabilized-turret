@@ -1,0 +1,34 @@
+# ---------- Python ----------
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+
+# ---------- 编辑器 ----------
+.vscode/*
+!.vscode/launch.json
+.idea/
+
+# ---------- 施工单（不公开，删掉这行就会公开） ----------
+提交顺序.md
+
+# ---------- 系统 ----------
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ---------- 厂商资料（版权归厂商，一律不进仓库） ----------
+ZDT_XS系列第二代闭环步进电机资料/
+STM32H743VIT6资料包下载/
+stm32h7vit6.zip
+esp32s3/flash_download_tool_3.9.3*
+
+# ---------- 原程序与反编译产物 ----------
+*.exe
+decompiled_all.c
+slot_functions_decompiled.c
+ghidra_12.1.3_PUBLIC/
+x64dbg/
+*.whl
+CAN上位机gui源码/
