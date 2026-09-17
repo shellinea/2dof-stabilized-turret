@@ -53,7 +53,7 @@ flowchart LR
     ESP["ESP32-S3 主控<br/>ESP-IDF / TWAI<br/>运动学解算 · 软限位<br/>模式状态机 · 1kHz 增稳环"]
 
     GP["BLE 手柄<br/>标准 HID"] -->|BLE| ESP
-    IMU["ICM-42688-P<br/>装托盘上"] -->|SPI| ESP
+    IMU["ICM-42688-P<br/>装托盘上"] -->|UART| ESP
     RK["泰山派 RK3576<br/>视觉识别 · 二期"] -->|UART| ESP
 
     M1["X42S #1"]
