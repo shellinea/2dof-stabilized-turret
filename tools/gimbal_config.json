@@ -1,0 +1,31 @@
+{
+  "motors": {
+    "1": {
+      "mirror": false
+    },
+    "2": {
+      "mirror": true
+    }
+  },
+  "kinematics": {
+    "pan_sign": 1,
+    "tilt_sign": 1,
+    "zero_pan": 0.0,
+    "zero_tilt": 0.0
+  },
+  "limits": {
+    "tilt_min": -45.0,
+    "tilt_max": 45.0,
+    "pan_min": -180.0,
+    "pan_max": 180.0
+  },
+  "motion": {
+    "rpm": 45,
+    "acc": 80,
+    "tilt": 30.0,
+    "cycles": 3,
+    "spin": 170.0,
+    "dwell": 0.0
+  },
+  "pulses_per_rev": 3200
+}
