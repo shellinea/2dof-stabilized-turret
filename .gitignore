@@ -24,6 +24,15 @@ STM32H743VIT6资料包下载/
 stm32h7vit6.zip
 esp32s3/flash_download_tool_3.9.3*
 
+# ---------- ESP-IDF 构建产物（build/ 单个就有 100 MB 以上） ----------
+firmware/**/build/
+firmware/**/sdkconfig
+firmware/**/sdkconfig.old
+firmware/**/managed_components/
+firmware/**/dependencies.lock
+firmware/**/.clangd/
+firmware/**/compile_commands.json
+
 # ---------- 原程序与反编译产物 ----------
 *.exe
 decompiled_all.c

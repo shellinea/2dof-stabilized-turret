@@ -1,7 +1,66 @@
 # ESP32-S3 固件（ESP-IDF）
 
-> **当前状态：尚未开始编码。** 本文件是组件与任务划分的规划稿，
+> **当前状态：手柄链路（M2a–M2c）已在实物上跑通**，代码在 [`esp32_turret/`](esp32_turret/)。
+> 它现在是一个**单文件原型**（基于 ESP-IDF `blecent` 示例裁剪），尚未拆成下面规划的组件结构 ——
+> 拆分安排在 CAN 接入之后，避免边验证边重构。
 > 完整需求与决策理由见 [`docs/00-总体方案-PRD.md`](../docs/00-总体方案-PRD.md) 第 4 章。
+
+---
+
+## 现在能跑什么
+
+| 阶段 | 内容 | 状态 |
+|---|---|---|
+| M2a | 扫描 CodexPad-S10，从**扫描响应**里解出按键位图（17 键全通） | ✅ 实物验证 |
+| M2b | 连接 + 遍历 GATT + 订阅 `0xFFA1` notify，断线自动重连 | ✅ 实物验证 |
+| M2c | 摇杆归一化 → `ω_ref`（±60 °/s）+ 死区，真实掉线即回中 | ✅ 实物验证 |
+| M2d | TWAI 收发 → 差速反解 → CAN 下发 | ⬜ 未开始 |
+
+### ⚠ 实测推翻的两处早期设计
+
+细节与实测记录见 [`docs/03-BLE手柄接入执行文档.md`](../docs/03-BLE手柄接入执行文档.md)。
+
+1. 手柄**不是** BLE-HID，走厂商自定义 GATT（`0xFFA0` 输入服务 / `0xFFA1` 通知特征）。
+   所以要用 **NimBLE GATT 客户端**，**不是** `esp_hid_host`。
+2. notify 载荷是**裸 8 字节** —— `buttons(u32 LE) + Lx + Ly + Rx + Ry`，
+   **没有** `0xAA…0x55` 帧头、**没有**转义、**没有** CRC。长度不等于 8 即丢弃。
+   并且它是**变化驱动**的：动的时候约 32 Hz，**手一停一包都不发**。
+   → 控制环绝不能把"多久没收到包"当成掉线判据；失效判据挂在 GAP 的
+   `DISCONNECT` 事件上，没新包 = 状态不变、继续用上一次的值。
+   （误停比不响应危险得多。）
+
+### 编译
+
+> ## ⚠ 必须把工程拷到**纯英文路径**再编译
+>
+> ESP-IDF 的工具链在**字节层**处理不了非 ASCII 路径，**本仓库所在的目录名是中文，
+> 在仓库里直接 `idf.py build` 一定失败**。实测（2026-09-19）会在两个地方先后倒下：
+>
+> ```
+> # 先卡在 kconfig（Python 用 GBK 读 build/config.env）
+> UnicodeDecodeError: 'gbk' codec can't decode byte 0xaf in position 2189
+> Failed to run kconfgen
+>
+> # 加 PYTHONUTF8=1 能骗过上面这关，但随后 Ninja 自己崩
+> terminate called after throwing an instance of 'std::filesystem::__cxx11::filesystem_error'
+>   what():  filesystem error: Cannot convert character sequence: Illegal byte sequence
+> ```
+>
+> 所以流程是：**代码在这里改，编译在别处做**。
+>
+> ```bash
+> # 1) 拷到纯英文路径（示例）
+> cp -r firmware/esp32_turret /d/esp/esp32_turret
+>
+> # 2) 在那边编译
+> cd /d/esp/esp32_turret
+> . $IDF_PATH/export.sh            # Windows 下的激活方式见执行文档 §1.1
+> idf.py build
+> idf.py -p COM7 flash monitor
+> ```
+>
+> `sdkconfig.defaults` 里已配好目标芯片（esp32s3）、16 MB Flash、OPI PSRAM 与 NimBLE，
+> 首次编译不需要再 `idf.py set-target`。
 
 ---
 
@@ -20,7 +79,22 @@
 
 ---
 
-## 计划中的目录结构
+## 目录结构：现状 vs 目标
+
+**现状**（`esp32_turret/`）—— M2a/M2b/M2c 全部挤在 `main/main.c` 里：
+
+```
+esp32_turret/
+├── CMakeLists.txt
+├── sdkconfig.defaults            # 目标芯片 / 16 MB Flash + OPI PSRAM / NimBLE
+└── main/
+    ├── main.c                    # 扫描 + 连接 + 订阅 + 载荷解析 + ω_ref 映射
+    ├── blecent.h                 # blecent 示例自带的广播解析工具
+    ├── Kconfig.projbuild         # 沿用示例的 CONFIG_EXAMPLE_* 开关
+    └── idf_component.yml         # 依赖 IDF 自带示例组件 nimble_central_utils
+```
+
+**目标**——下面这张是拆分后的样子，**尚未落地**：
 
 ```
 esp32_turret/
@@ -38,7 +112,7 @@ esp32_turret/
     ├── gimbal_kin/               # 差速运动学正反解 + 镜像补偿 + 限幅
     ├── motion/                   # 模式状态机 + 指向环 + 轨迹
     ├── gamepad_ble/              # NimBLE GATT 客户端：连接 / 订阅 / 重连
-    │   └── codexpad_codec.c/.h   # ★ 自定义帧编解码：0xAA…0x55 + 转义 + CRC8(SAE-J1850)
+    │   └── codexpad_codec.c/.h   # ★ 载荷解析：裸 8 字节，直接 memcpy，无帧格式
     ├── link_uart/                # 与泰山派的 UART 协议（二期）
     └── safety/                   # 心跳 / 软限位 / 急停 / 故障 / IMU 异常
 ```
@@ -122,19 +196,24 @@ IMU 也异常才退回 IDLE。**绝不在失去控制源时继续运动。**
 
 | 风险 | 说明 | 缓解 |
 |---|---|---|
-| **手柄 BLE 链路打通** | 手柄是 **CodexPad-S10，不是 BLE-HID**，走厂商自定义 GATT 协议（`0xFFA0`/`0xFFA1`）。协议已从厂商开源库完整逆向，风险降为**移植工作量** | 基于 ESP-IDF `blecent` 示例裁剪 NimBLE 客户端；**M2a 只扫描即可先证伪**。协议、帧格式、CRC 表、代码骨架见 [`docs/03-BLE手柄接入执行文档.md`](../docs/03-BLE手柄接入执行文档.md)；卡住时有 arduino-esp32 官方 `CodexPad` 库作逃生路线 |
+| ~~手柄 BLE 链路打通~~ | **已消除（2026-09-19）**。M2a–M2c 实测跑通：连接约 260 ms、GATT 表遍历完整、订阅 `0xFFA1` 成功、断线自动重连、摇杆映射到 `ω_ref`。过程见 [`docs/03-BLE手柄接入执行文档.md`](../docs/03-BLE手柄接入执行文档.md) | 遗留：`0xFFE1` 这个未知特征（读写+notify，疑似控制点/震动反馈）未解，但**不阻塞**任何后续里程碑 |
 | **IMU 布线跨转动关节** | IMU 装在托盘上，UART 4 线（5V/GND/TX/RX）要跨关节 | 一期用"限位自转 ±90°"规避；必须有掉线检测（帧超时 + 校验和错误计数），异常自动旁路稳定环 |
 | **IMU 采样率上限 100 Hz** | 汇电籽-601 固定 100 Hz 上报、协议不支持改速率，增稳闭环带宽目标只能定 **≥ 10 Hz**（原计划 ≥ 20 Hz） | 惯性增稳的任务是"提高阻尼"不是"提高增益"，10 Hz 足够抑制手抖与行走扰动；不足时优先靠机械刚度与低通滤波，而不是硬提增益 |
 | **视觉模型工作量** | 采集/标注/训练/RKNN 转换是最大的一块 | 拆成"先用传统图像处理（色块）跑通整条链路 → 再换训练好的模型"，让链路与算法解耦验证 |
 
 ---
 
-## 下一步
+## 下一步（M2d）
 
-按依赖顺序，第一个里程碑是**单轴动起来**：
+手柄这一环已经闭环，下一棒是**让电机真的动起来**，第一个里程碑是**单轴动起来**：
 
-1. 采购 CAN 收发模块（SN65HVD230 / TJA1051）
-2. 移植 `emm_protocol`，TWAI 发一条 `36` 读位置并校验应答
+1. **TWAI 自检**：不接总线，先用内部回环（loopback）验证收发通路，确认引脚与驱动配置无误
+2. 接 CAN 收发器（SN65HVD230 / TJA1051 一类，3.3 V）到 TWAI 引脚，
+   移植 `emm_protocol`，发一条 `36` 读位置并校验应答
 3. 位置模式点位控制，单轴转 30° 再转回来
 4. 接上第二台，验证差速运动学和 2 号电机镜像补偿（参考 [`tools/gimbal.py`](../tools/gimbal.py)）
-5. 再进 BLE 手柄
+5. 把 `ω_ref` 接进差速反解，手柄真正驱动转台
+
+> ESP32-S3 **片内就有 TWAI 控制器**，外接的只是一颗物理层收发器。
+> 注意接线是**直连**（TXD→TWAI_TX、RXD→TWAI_RX），**不像 UART 那样交叉**；
+> 收发器的 RS 脚要接地（高速模式）。
