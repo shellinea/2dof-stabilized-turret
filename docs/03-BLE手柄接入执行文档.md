@@ -800,6 +800,86 @@ pan == 0  ⇔  Lx == 128        tilt == 0  ⇔  Ry == 128
 
 ---
 
+## 6.5 全流程总览（回看 M2a–M2c）
+
+> 前三节按里程碑分开写，代码也按职责拆在 5 个文件里 —— 每处都短，
+> 但代价是**没有任何一个地方能一眼看见全流程**。这一节把这条线补回来：
+> 排错时先在这里定位"卡在哪一段"，再进对应文件看实现。
+
+### 完整流程（按执行顺序）
+
+```
+【启动】app_main()
+   nvs_flash_init → nimble_port_init → pad_input_init()   ← 建覆盖队列 + 起 pad_m2c 任务
+   → 挂 3 个协议栈回调(reset/sync/store) → peer_init
+   → 设设备名 → ble_store_config_init → nimble_port_freertos_init(pad_host_task)
+        └─ 协议栈跑起来、同步完成 → 回调 sync_cb = pad_on_sync() → pad_link_scan()
+
+【扫描 → 连接】pad_link_scan()    ble_gap_disc(主动扫描、不过滤重复)
+   └─ 每收到一包广播 → pad_gap_event(DISC) → pad_scan_on_disc()
+        └─ 认出 CodexPad（先靠名字记住它的地址）→ pad_link_connect(addr)
+             └─ ble_gap_disc_cancel() → ble_gap_connect(..., pad_gap_event)
+   └─ 连上 → pad_gap_event(CONNECT) → on_connect()
+        └─ print_conn_desc + peer_add + pad_gatt_start(conn_handle)
+
+【发现 → 订阅】pad_gatt_start()
+   ble_gattc_disc_all_svcs ──► on_svc_disc ×N              收齐服务表（6 个）
+        └─ disc_next_svc(): 逐个服务 disc_all_chrs → on_chr_disc ×N  ← 记下 0xFFA1 的 val_handle
+             └─ 全部服务翻完 → disc_all_dscs(0xFFA1 的 val_handle) → on_dsc_disc
+                  └─ 找到 0x2902 CCCD → ble_gattc_write_flat(CCCD, {01 00})  写 1 = 打开 notify
+                       └─ on_cccd_write   ✔ 订阅完成，手柄开始推数据
+
+【数据流】手柄推 notify → pad_gap_event(NOTIFY_RX)
+   └─ os_mbuf_copydata → pad_input_on_notify(buf, len)
+        └─ len≠8 丢弃；否则 memcpy → push_state()  ==========★ 唯一一处跨任务
+   pad_m2c 任务（另一个 task，50 Hz）xQueuePeek → 归一化+死区 → ω_ref → 变化才打印
+
+【掉线】pad_gap_event(DISCONNECT) → on_disconnect()
+   peer_delete + pad_gatt_reset + pad_input_center() + pad_link_scan()  ──★ 回到扫描，闭环
+```
+
+### 三个必须记住的结构事实
+
+**① 整套 BLE 只跑在 <ins>一个</ins> task 里。**
+
+`app_main()` 不是常驻的，它初始化完就退出。真正长期运行的只有两个 task：
+
+| task | 谁创建 | 干什么 | 绑核 |
+|---|---|---|---|
+| `nimble_host` | `app_main.c:79` → IDF 的 `nimble_port_freertos.c:43` | `nimble_port_run()` 协议栈主循环，**以及全部 GAP/GATT 回调** | **核 0（PRO_CPU）**，`CONFIG_BT_NIMBLE_PINNED_TO_CORE=0`，栈 4096，优先级 21 |
+| `pad_m2c` | `pad_input.c:165` | 50 Hz 控制环：读队列 → 算 `ω_ref` | 未绑（`xTaskCreate`）；将来与增稳环一起进 **核 1（APP_CPU）** |
+
+> ⚠ `app_main.c:79` 传进去的 `pad_host_task` **只是个回调函数指针**，不是 task 本体。
+> task 是 IDF 的 `esp_nimble_enable()` 建的，名字叫 `nimble_host`。
+> 所以 `pad_host_task` 第一行那句 `"BLE Host 任务已启动"` 是在**新建的那个 task 里**打印的。
+
+**推论（这条最值钱）**：`pad_scan.c` / `pad_link.c` / `pad_gatt.c` 里的代码
+**不是三条并行流程**，而是同一个 task 的**不同分支** —— 全都在 `pad_gap_event()`
+那个 `switch` 底下。**文件边界 ≠ 运行时边界。**
+这就是"拆成 5 个文件之后反而串不起来"的根源。
+
+**② 整个工程只有一处跨任务。**
+
+`pad_input.c` 那个长度 1 的覆盖式队列之所以存在，**唯一理由**是：
+`pad_input_on_notify()` 跑在 `nimble_host`（核 0）上，而 `pad_m2c`（核 1）是另一个 task。
+理解了 ①，② 就自明 —— BLE 侧内部所有调用都是同 task 直调，**不需要任何同步**。
+
+**③ 发现链是一条链，不是一个循环。**
+
+`services → 每个 service 的 chars → 0xFFA1 的 dscs → 写 CCCD`，每级在自己的
+`BLE_HS_EDONE` 里交给下一级（`disc_next_svc()`）。它看着绕，只因为 NimBLE 是
+**异步回调式**的：每级都是「发一个请求 → 回调 N 次（每次给一个对象）→ 最后回调
+`EDONE`」，没法写成一个 `for` 循环。
+
+### 怎么用这张图
+
+- **排错**：先判断卡在哪一段，再只看那一段 —— 日志在校验前就断了 ⇒ GAP（没连上）；
+  连上了但一直没有 `[ω_ref]` ⇒ GATT（没订上 notify）。
+- **加功能**：要按键触发动作，改 `pad_input.c` 的 `pad_m2c`（那里已经在解按键）
+  —— 它在核 1，跟 BLE 无关，改它不会碰坏协议栈。
+
+---
+
 # 7. M2d —— 下一棒（本里程碑结束）
 
 **里程碑终点**：串口能稳定打印解析好的摇杆/按键，`ω_ref` 数值合理。
