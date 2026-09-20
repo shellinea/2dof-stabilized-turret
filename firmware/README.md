@@ -1,8 +1,8 @@
 # ESP32-S3 固件（ESP-IDF）
 
 > **当前状态：手柄链路（M2a–M2c）已在实物上跑通**，代码在 [`esp32_turret/`](esp32_turret/)。
-> 它现在是一个**单文件原型**（基于 ESP-IDF `blecent` 示例裁剪），尚未拆成下面规划的组件结构 ——
-> 拆分安排在 CAN 接入之后，避免边验证边重构。
+> 已按职责拆成 5 个模块（见下面「目录结构」），整条链路基于 ESP-IDF `blecent` 示例裁剪。
+> CAN / IMU / 增稳那几块尚未开始，等 M2d 之后按 `components/` 拆分。
 > 完整需求与决策理由见 [`docs/00-总体方案-PRD.md`](../docs/00-总体方案-PRD.md) 第 4 章。
 
 ---
@@ -81,20 +81,29 @@
 
 ## 目录结构：现状 vs 目标
 
-**现状**（`esp32_turret/`）—— M2a/M2b/M2c 全部挤在 `main/main.c` 里：
+**现状**（`esp32_turret/`）—— 手柄链路按职责拆成 5 个模块，都在 `main/` 下：
 
 ```
 esp32_turret/
 ├── CMakeLists.txt
 ├── sdkconfig.defaults            # 目标芯片 / 16 MB Flash + OPI PSRAM / NimBLE
 └── main/
-    ├── main.c                    # 扫描 + 连接 + 订阅 + 载荷解析 + ω_ref 映射
-    ├── blecent.h                 # blecent 示例自带的广播解析工具
-    ├── Kconfig.projbuild         # 沿用示例的 CONFIG_EXAMPLE_* 开关
+    ├── app_main.c                # 入口：NVS + NimBLE 初始化、回调挂接
+    ├── codexpad.h                # 公共接口：UUID / 状态结构 / 键位表 / 跨模块 API
+    ├── pad_scan.c                # M2a：广播扫描 + 扫描响应解析
+    ├── pad_link.c                # M2b：GAP —— 扫描 / 连接 / 断线重扫 + 事件总回调
+    ├── pad_gatt.c                # M2b：GATT —— 服务链发现 + 订阅 notify
+    ├── pad_input.c               # M2b/M2c：notify 解析 + 覆盖队列 + 摇杆 → ω_ref
     └── idf_component.yml         # 依赖 IDF 自带示例组件 nimble_central_utils
 ```
 
-**目标**——下面这张是拆分后的样子，**尚未落地**：
+> 拆分时**只搬位置、只删死代码，没有改逻辑**。删掉的是 blecent 示例自带的 ANS 通知
+> 演示链（read/write/subscribe 九件套）、`should_connect` 系列、EATT / 加密 / 扩展广播
+> 等编译期就关闭的分支，以及一段针对**实测并不存在的** `0xAA…0x55` 帧格式写的 CRC
+> 兜底解析。拆分后固件比原来小 224 字节；上板实测与拆分前一致
+> （`val_handle=33` / `CCCD=34` / `MTU=256`，摇杆映射 ±60 °/s 正常）。
+
+**目标**——下面这张是**手柄之外**的组件拆分，**尚未落地**：
 
 ```
 esp32_turret/
@@ -102,6 +111,7 @@ esp32_turret/
 ├── sdkconfig.defaults            # TWAI / NimBLE(BLE central) / UART / PSRAM 关键配置
 ├── main/
 │   ├── app_main.c                # 初始化 + 创建任务
+│   ├── pad_*.c / codexpad.h      # 手柄链路（已落地，先留在 main/，L4 之后再挪进 components/）
 │   └── Kconfig.projbuild         # 机械与传感器参数（镜像、限位、增益、滤波）
 └── components/
     ├── motor_can/                # Emm CAN 协议层（移植自 tools/zdt_can.py）
@@ -111,8 +121,6 @@ esp32_turret/
     ├── stabilizer/               # 速率稳定环 + 使能/旁路 + 自激保护
     ├── gimbal_kin/               # 差速运动学正反解 + 镜像补偿 + 限幅
     ├── motion/                   # 模式状态机 + 指向环 + 轨迹
-    ├── gamepad_ble/              # NimBLE GATT 客户端：连接 / 订阅 / 重连
-    │   └── codexpad_codec.c/.h   # ★ 载荷解析：裸 8 字节，直接 memcpy，无帧格式
     ├── link_uart/                # 与泰山派的 UART 协议（二期）
     └── safety/                   # 心跳 / 软限位 / 急停 / 故障 / IMU 异常
 ```

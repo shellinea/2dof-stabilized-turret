@@ -251,8 +251,9 @@ python tools/plot.py sample.csv
 
 > **当前状态说明**：上位机侧（协议逆向 + 工具链 + 机械）已完整可用并经过实机验证；
 > ESP32 侧的手柄输入链路已打通（扫描 / 连接 / 订阅 notify / 摇杆映射，均实物验证），
-> 当前为单文件原型，代码见 [`firmware/esp32_turret/`](firmware/esp32_turret/)。
-> 下一步是 CAN 收发（M2d），之后再做组件拆分。这个仓库会随开发持续更新。
+> 并按职责拆成 5 个模块（`app_main` / `pad_scan` / `pad_link` / `pad_gatt` / `pad_input`），
+> 代码见 [`firmware/esp32_turret/`](firmware/esp32_turret/)。
+> 下一步是 CAN 收发（M2d），之后再做 `components/` 拆分。这个仓库会随开发持续更新。
 
 ---
 

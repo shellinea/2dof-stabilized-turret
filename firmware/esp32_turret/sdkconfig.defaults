@@ -1,4 +1,4 @@
-# 工程配置 —— 见 docs/03-BLE手柄接入执行文档.md §3.3
+# M2a 工程配置 —— 见 docs/03-BLE手柄接入执行文档.md §3.3
 CONFIG_IDF_TARGET="esp32s3"
 
 # 本板 YD-ESP32-S3-N16R8：16 MB Flash + 8 MB 八线 PSRAM
