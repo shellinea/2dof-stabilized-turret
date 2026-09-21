@@ -11,7 +11,7 @@
 ![总线](https://img.shields.io/badge/总线-CAN%20500%20kbps-2E8B57?style=flat-square)
 ![执行机构](https://img.shields.io/badge/执行机构-ZDT%20X42S%20闭环步进-6A5ACD?style=flat-square)
 ![许可](https://img.shields.io/badge/License-MIT-blue?style=flat-square)
-![进度](https://img.shields.io/badge/进度-工具链已完成%20%2F%20固件进行中-yellow?style=flat-square)
+![进度](https://img.shields.io/badge/进度-手柄%2BCAN%20电机已通%20%2F%20增稳环进行中-yellow?style=flat-square)
 
 <img src="hardware/photos/设备总览.jpg" width="62%">
 
@@ -210,8 +210,10 @@ python tools/plot.py sample.csv
 .
 ├── docs/                          # 方案与经验文档
 │   ├── 00-总体方案-PRD.md          # 需求规格 + 9 项决策取舍
-│   ├── 01-CAN调试入门指南.md       # 从零接通 CAN 的踩坑记录
+│   ├── 01-CAN调试入门指南.md       # 从零接通 CAN 的踩坑记录（PC 上位机侧）
 │   ├── 02-601串口陀螺仪协议.md      # IMU 协议规格 + 帧级自检
+│   ├── 03-BLE手柄接入执行文档.md    # 手柄自定义 BLE 协议 + NimBLE 主机实现（M2a–M2e）
+│   ├── 04-ESP32-CAN电机驱动.md      # TWAI + Emm + 差速逆解（ESP32 侧，含 3 个 TWAI 陷阱）
 │   └── assets/                    # README 配图
 ├── tools/                          # 上位机联调工具（Python）
 │   ├── zdt_can.py                 # CAN 命令行工具，20 个子命令
@@ -220,7 +222,16 @@ python tools/plot.py sample.csv
 │   ├── plot.py                    # 离线采样画图
 │   ├── config.py                  # 标定参数管理
 │   └── README.md                  # ← 工具集完整使用说明
-├── firmware/                       # ESP32-S3 固件（ESP-IDF）— 进行中
+├── firmware/                       # ESP32-S3 固件（ESP-IDF）
+│   └── esp32_turret/              # 手柄 + CAN 电机，已上板跑通
+│       └── main/
+│           ├── app_main.c         # 入口 + 电机上电自检 motor_bringup()
+│           ├── pad_scan.c         # M2a：广播扫描 + SCAN_RSP 解析
+│           ├── pad_link.c         # M2b：GAP 扫描 / 连接 / 断线重扫
+│           ├── pad_gatt.c         # M2b：GATT 服务链发现 + 订阅 notify
+│           ├── pad_input.c        # M2b/M2c/M2e：notify → ω_ref → 差速逆解
+│           ├── motor_twai.c/.h    # M2d/M2e：TWAI + Emm 协议 + 逆运动学
+│           └── codexpad.h         # 手柄侧公共接口
 ├── hardware/                       # 硬件清单 / 接线 / 机械
 │   └── mechanical/                # 斜锥齿轮云台 3D 模型
 ├── reverse-engineering/            # 逆向官方上位机，还原 CAN 协议
@@ -243,17 +254,20 @@ python tools/plot.py sample.csv
 | **前置** | 上位机联调工具链（6 个 Python 工具） | ✅ 完成 |
 | **前置** | 机械结构 3D 建模 | ✅ 完成 |
 | **一期** | CodexPad-S10 手柄接入（BLE 自定义协议，双摇杆 → `ω_ref`） | ✅ 完成（2026-09-19） |
-| **一期** | ESP32-S3 主控 + CAN 驱动双电机 | 🚧 进行中 |
-| **一期** | 汇电籽-601 惯性增稳环（100 Hz） | ⬜ 未开始 |
+| **一期** | ESP32-S3 主控 + CAN 驱动双电机 + 手柄驱动转台（M2a–M2e） | ✅ 完成（2026-09-21） |
+| **一期** | 汇电籽-601 惯性增稳环（100 Hz） | 🚧 进行中（下一棒） |
 | **二期** | 泰山派视觉识别 → UART 像素偏差上报 | ⬜ 未开始 |
 | **二期** | ESP32 视觉跟踪闭环 | ⬜ 未开始 |
 | **三期** | 手柄找目标 → 按键切 AUTO 自动跟踪 | ⬜ 未开始 |
 
 > **当前状态说明**：上位机侧（协议逆向 + 工具链 + 机械）已完整可用并经过实机验证；
-> ESP32 侧的手柄输入链路已打通（扫描 / 连接 / 订阅 notify / 摇杆映射，均实物验证），
-> 并按职责拆成 5 个模块（`app_main` / `pad_scan` / `pad_link` / `pad_gatt` / `pad_input`），
-> 代码见 [`firmware/esp32_turret/`](firmware/esp32_turret/)。
-> 下一步是 CAN 收发（M2d），之后再做 `components/` 拆分。这个仓库会随开发持续更新。
+> ESP32 侧的整条「手柄 → BLE → `ω_ref` → 差速逆解 → CAN → 两台电机」链路
+> **已全部上板跑通**（2026-09-21，用户实操确认"能控制的转动了"）。
+> 固件按职责拆成 6 个模块，见 [`firmware/esp32_turret/`](firmware/esp32_turret/)。
+>
+> **下一步**：汇电籽-601 IMU 增稳环（100 Hz）—— 把 `m2c_task` 扩成
+> 「手柄目标 + IMU 反馈」的复合环。相关坑位（总线会静默丢帧、TWAI 只能在控制环
+> 任务里调）已写在 [`docs/04-ESP32-CAN电机驱动.md`](docs/04-ESP32-CAN电机驱动.md)。
 
 ---
 
@@ -264,7 +278,8 @@ python tools/plot.py sample.csv
 | [docs/00-总体方案-PRD.md](docs/00-总体方案-PRD.md) | 需求规格、系统架构、通信协议、**9 项关键决策取舍**、里程碑 |
 | [docs/01-CAN调试入门指南.md](docs/01-CAN调试入门指南.md) | 从零接通 CAN 的完整流程与根因排查优先级 |
 | [docs/02-601串口陀螺仪协议.md](docs/02-601串口陀螺仪协议.md) | IMU 串口协议：帧结构/校验/指令表/上报解析，含可直接跑的自检脚本 |
-| [docs/03-BLE手柄接入执行文档.md](docs/03-BLE手柄接入执行文档.md) | CodexPad-S10 手柄自定义 BLE 协议（非 HID）+ NimBLE 主机实现 + M2a–M2d 执行步骤 |
+| [docs/03-BLE手柄接入执行文档.md](docs/03-BLE手柄接入执行文档.md) | CodexPad-S10 手柄自定义 BLE 协议（非 HID）+ NimBLE 主机实现 + M2a–M2e 执行步骤 |
+| [docs/04-ESP32-CAN电机驱动.md](docs/04-ESP32-CAN电机驱动.md) | ESP32 侧 TWAI + Emm 协议 + 差速逆解：接线、双校验陷阱、线程契约、排错表、相位 1~7 实测 |
 | [tools/README.md](tools/README.md) | 工具集使用说明，含 `drain()` 15 ms 问题的完整过程 |
 | [reverse-engineering/notes/](reverse-engineering/notes/) | 加壳程序脱壳、Ghidra 反编译、协议还原证据链 |
 | [hardware/README.md](hardware/README.md) | 硬件清单、接线要点、供电方案 |
