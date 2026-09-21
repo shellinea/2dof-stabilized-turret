@@ -1,10 +1,12 @@
 /*
  * SPDX-License-Identifier: Apache-2.0
- * 应用入口：拉起 NimBLE 协议栈，接上手柄输入模块。
+ * 应用入口：拉起 NimBLE 协议栈，接上手柄输入模块与电机总线。
  *
- * 手柄链路的实现拆在 pad_*.c，公共接口见 codexpad.h。
+ * 手柄链路的实现拆在 pad_*.c，公共接口见 codexpad.h；
+ * 电机（TWAI + Emm + 差速逆解）在 motor_twai.c，接口见 motor_twai.h。
  */
 #include <assert.h>
+#include <stdio.h>
 
 #include "esp_log.h"
 #include "nvs_flash.h"
@@ -16,11 +18,58 @@
 #include "esp_central.h"        /* peer_init / ble_store_util_status_rr */
 
 #include "codexpad.h"
+#include "motor_twai.h"
 
 static const char *TAG = "turret_ble";
 
 /* 实现在 NimBLE 的 ble_hs_pvcy.c，没随公共头导出，这里自行声明 */
 void ble_store_config_init(void);
+
+/* 千分之一度 -> "±D.DDD"，好塞进 printf。
+ * 刻意不用 %f：本 IDF 若开了 newlib-nano 格式化，%f 会打印不出来。
+ * 6 格轮转缓冲 —— 一条 printf 里要塞好几个值，共用一格会被后一个冲掉前一个。 */
+static const char *fmt_deg(int32_t mdeg)
+{
+    static char b[6][24];
+    static unsigned i;
+    char *p = b[i++ % 6u];
+    const int32_t a = (mdeg < 0) ? -mdeg : mdeg;
+    snprintf(p, sizeof(b[0]), "%s%d.%03d", mdeg < 0 ? "-" : "+",
+             (int)(a / 1000), (int)(a % 1000));
+    return p;
+}
+
+/* 上电自检：两台电机探活 + 读一次姿态 + 使能。
+ * 必须在控制环（pad_input_init）之前 —— 控制环一跑就开始发速度指令。 */
+static void motor_bringup(void)
+{
+    if (!motor_init()) {
+        return;                     /* TWAI 没建起来，后面 motor_ready() 全是 false */
+    }
+
+    /* 两台分别探一次：读不到是哪台的问题，日志里要说清楚，不然只看到
+     * "读不到位置"没法下手。上电没使能也能读 36，所以这里读不到纯粹是链路问题。 */
+    int32_t p1 = 0, p2 = 0;
+    const bool has1 = motor_read_pos(1, &p1);
+    const bool has2 = motor_read_pos(2, &p2);
+    printf("[motor] 1 号 %s   2 号 %s\n",
+           has1 ? fmt_deg(p1) : "读不到（查地址/接线）",
+           has2 ? fmt_deg(p2) : "读不到（查地址/接线）");
+
+    if (has1 && has2) {
+        int32_t tilt = 0, pan = 0;
+        if (motor_read_pose(&tilt, &pan)) {
+            printf("[motor] 初始姿态: 俯仰=%s 度  自转=%s 度\n",
+                   fmt_deg(tilt), fmt_deg(pan));
+        }
+    }
+
+    /* 使能是必须的：掉电再上电后电机回到失能态，不使能的话速度指令发出去
+     * 也没人动，症状是"日志正常但转台不动"。 */
+    if (!motor_enable(true)) {
+        printf("[motor] ⚠ 使能失败\n");
+    }
+}
 
 static void pad_on_reset(int reason)
 {
@@ -54,6 +103,11 @@ void app_main(void)
         ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
+    /* ---- M2e：电机总线上电自检 ----
+     * 必须在控制环（pad_input_init）之前 —— 控制环一跑就开始发速度指令，
+     * 那会儿 TWAI 必须已经就绪，不然指令全被 motor_ready() 挡掉。 */
+    motor_bringup();
 
     ret = nimble_port_init();
     if (ret != ESP_OK) {

@@ -1,6 +1,6 @@
 /*
  * SPDX-License-Identifier: Apache-2.0
- * M2b/M2c：notify 载荷 → 覆盖队列 → 摇杆映射成 ω_ref。
+ * M2b/M2c/M2e：notify 载荷 → 覆盖队列 → 摇杆映射成 ω_ref → 差速逆解 → 电机。
  *
  * ⚠ 关键设计：「包不来」≠「掉线」。
  * 实测这只手柄的 notify 是**变化驱动**：动的时候 ~32 Hz，手一停一包都不发。
@@ -12,6 +12,9 @@
  *     没来就一直是老值 → 控制环永远读到「最后一次已知状态」，不存在「过期」概念。
  *   - **唯一的清零点是 GAP 层的 DISCONNECT 事件** —— 那是真的掉线。
  *     也就是「失效判据挂在连接状态上，不挂在数据流上」。
+ *
+ * 本文件同时是**全工程唯一允许调 motor_twai.c 的地方**（M2e）：
+ * TWAI 发送是阻塞式的，BLE host 任务（core 0、4 KB 栈）碰不得，见 motor_twai.h。
  */
 #include <assert.h>
 #include <stdio.h>
@@ -23,6 +26,7 @@
 #include "freertos/queue.h"
 
 #include "codexpad.h"
+#include "motor_twai.h"
 
 /* 17 键位表（附录 A.4）*/
 const codexpad_btn_t k_btn_names[] = {
@@ -38,6 +42,10 @@ const size_t k_btn_names_n = sizeof(k_btn_names) / sizeof(k_btn_names[0]);
 #define M2C_PERIOD_MS    20          /* 控制环周期 50 Hz（手柄最快 ~32 Hz，够用）*/
 #define OMEGA_MAX_DPS    60.0f       /* 摇杆推满对应的角速度，先取 60 °/s，实测再调 */
 #define AXIS_DEADZONE    0.08f       /* 归一化死区，抵消回中不准引起的漂移 */
+
+/* 同一对 ω_ref 隔多久重发一次。理由见 m2c_task 里的长注释：速度指令有状态、
+ * 用不着 50 Hz 重发；但一条都不重发的话，丢一帧"停车"就等于"松手还在转"。 */
+#define MOTOR_REFRESH_MS 200
 
 static QueueHandle_t g_pad_q;        /* codexpad_state_t × 1，覆盖式，单写单读 */
 
@@ -82,6 +90,11 @@ static void m2c_task(void *arg)
     codexpad_state_t last;
     state_center(&last);
 
+    /* 已经发出去的那一对 ω_ref（毫度/秒），用它做"变了才发"的去重 */
+    static int32_t    s_sent_wt, s_sent_wp;
+    static bool       s_sent_first = true;
+    static TickType_t s_sent_at;
+
     while (1) {
         if (xQueuePeek(g_pad_q, &st, 0) != pdTRUE) {
             vTaskDelay(pdMS_TO_TICKS(M2C_PERIOD_MS));
@@ -114,6 +127,41 @@ static void m2c_task(void *arg)
                    pan, tilt, st.axes[0], st.axes[1], st.axes[2], st.axes[3],
                    (unsigned long)st.buttons, names);
         }
+
+        /* ---- M2e：ω_ref → 差速逆解 → 两台转速指令 ----
+         * 单位在这里从 float °/s 换成定点毫度/秒：控制环算得快，
+         * 但电机接口一律定点（%f 在本 IDF 下可能印不出来，见 motor_twai.h）。 */
+        const int32_t     wt  = (int32_t)(tilt * 1000.0f);
+        const int32_t     wp  = (int32_t)(pan  * 1000.0f);
+        const TickType_t  now = xTaskGetTickCount();
+
+        /* 什么时候发：
+         *   1) 第一次 —— 上电先明确下一道"停车"，别让电机揣着上电残留的转速；
+         *   2) 值变了    —— 摇杆动了；
+         *   3) 隔了心跳  —— 见下。
+         * 不发的时候什么都不做：速度指令是**有状态**的，电机保持最后收到的
+         * 转速，50 Hz 重发纯属浪费总线（500 kbps 上 2×3 帧/20 ms 也吃不消，
+         * 后面增稳环 100 Hz 还要用）。
+         *
+         * 但完全靠"变了才发"有个真实风险：这个总线**会丢帧、而且不声不响**
+         * （实测见过一次 2 号压根没动）。停车指令丢了 = 松手了转台还在转。
+         * 所以留 200 ms 心跳：真丢了下一拍就补上，最多多转 200 ms。
+         *
+         * 掉线停车也走这一条路，不在 GAP 回调里直接调 motor_stop()：
+         * DISCONNECT → pad_input_center() → ω_ref 变成 0 → 这里算"值变了"就发。 */
+        if (motor_ready() &&
+            (s_sent_first ||
+             wt != s_sent_wt || wp != s_sent_wp ||
+             (now - s_sent_at) >= pdMS_TO_TICKS(MOTOR_REFRESH_MS))) {
+            if (motor_diff_drive(wt, wp, 0)) {
+                s_sent_wt    = wt;
+                s_sent_wp    = wp;
+                s_sent_at    = now;
+                s_sent_first = false;
+            }
+            /* 发失败就不更新 s_sent_*，下一拍（20 ms 后）自动重试 */
+        }
+
         vTaskDelay(pdMS_TO_TICKS(M2C_PERIOD_MS));
     }
 }
@@ -153,7 +201,8 @@ void pad_input_on_notify(const uint8_t *buf, uint16_t len)
     push_state(&st);
 }
 
-/* 建覆盖队列 + 起控制环任务。放在 app_main 里协议栈初始化之后调用。 */
+/* 建覆盖队列 + 起控制环任务。放在 app_main 里协议栈初始化之后调用。
+ * ⚠ 必须在 motor_init() 成功之后：控制环一跑就开始发速度指令。 */
 void pad_input_init(void)
 {
     g_pad_q = xQueueCreate(1, sizeof(codexpad_state_t));
