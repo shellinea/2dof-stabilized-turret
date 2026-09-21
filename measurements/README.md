@@ -10,6 +10,7 @@
 | `run.csv` | `tools/scope.py --motion` | 边跑动作边采样（俯仰 + 自转） |
 | `sample.png` | `tools/plot.py` | `sample.csv` 的四张子图 |
 | `make_figures.py` | — | 生成 README 配图（`docs/assets/`），不依赖硬件 |
+| `esp32_can_phases.md` | ESP32-S3 自检固件 + M2e 上板 | CAN 相位 1~7 的判据与实测数字、M2e 串口关键行、`D1 07` 死命令的穷尽记录 |
 
 ## CSV 格式
 

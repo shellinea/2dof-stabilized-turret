@@ -138,6 +138,11 @@ X42S 供电范围 **10–29 V**（标准版），12 V 可行。但电池类型�
 > 在官方 GUI 里遇到的"地址 2 无数据返回"是 **GUI 侧的问题**，
 > 不是硬件或地址问题——`python tools/zdt_can.py --addr 1,2 scan` 实测两台都在线。
 > 详见 [`docs/01-CAN调试入门指南.md`](../docs/01-CAN调试入门指南.md)。
+>
+> **ESP32 侧接 CAN 还要多两条**：TWAI 引脚是 **GPIO4/GPIO5**
+> （**千万别接 GPIO43/44**，那是 console UART，接了烧不了录），
+> 且收发器是**直连不交叉**（不像 UART）。
+> 见 [`docs/04-ESP32-CAN电机驱动.md`](../docs/04-ESP32-CAN电机驱动.md) §1。
 
 ---
 
