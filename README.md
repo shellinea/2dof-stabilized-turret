@@ -30,6 +30,12 @@
 - **俯仰/俯视** → 两台电机世界同向同角度：`(θ₁ + θ₂) / 2`
 - **自转/spin** → 两台电机世界反向同角度：`(θ₁ − θ₂) / 2`
 
+<img src="hardware/mechanical/装配体渲染图.png" width="80%">
+
+<sub>机构本体（SolidWorks）：左右两台 ZDT X42S 斜向布置，经一对斜锥齿轮差速合成到中间托盘；
+底座开有减重网格孔，电机后端留出接线与散热间隙。3D 模型见
+<a href="hardware/mechanical"><code>hardware/mechanical/</code></a>。</sub>
+
 在这个机构上做三层控制：
 
 | 层 | 带宽 | 作用 |
